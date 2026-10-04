@@ -28,6 +28,15 @@ import { Palette, paletteState, type PaletteState } from "./Palette";
 import { OptionList, SubjectiveAnswer } from "./AnswerControls";
 import { QuestionBody, QuestionMeta } from "./QuestionBody";
 import { ReviewList } from "./ReviewList";
+import { ScoreSummary } from "./ScoreSummary";
+import { SelfScore, type SelfScoreDraft } from "./SelfScore";
+import { ResultPalette, ReviewFilters } from "./ReviewFilters";
+import {
+  filterCounts,
+  filterItems,
+  itemsNeedingSelfScore,
+  type ReviewFilter,
+} from "@/lib/quiz/filters";
 import { Badge, Muted, Notice, PageTitle, QuizText, Spinner } from "./primitives";
 
 interface AnswerState {
@@ -38,7 +47,12 @@ interface AnswerState {
   changedAnswer: boolean;
 }
 
-type Phase = "start" | "attempt" | "review";
+/**
+ * A quiz with written answers passes through "selfScore" before "review": a
+ * total that counts every unscored written answer as zero is not a result, it
+ * is a misleading one, so it is not shown until the candidate has judged them.
+ */
+type Phase = "start" | "attempt" | "selfScore" | "review";
 
 const CANDIDATE_KEY = "pcsj-quiz.candidate";
 const progressKey = (setId: string) => `pcsj-quiz.progress.${setId}`;
@@ -96,9 +110,10 @@ export function QuizRunner({
   const [review, setReview] = useState<AttemptReview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [queuedNotice, setQueuedNotice] = useState<string | null>(null);
-  const [ticks, setTicks] = useState<Record<string, number[]>>({});
-  const [saving, setSaving] = useState<Set<string>>(new Set());
+  const [draft, setDraft] = useState<SelfScoreDraft>({ ticks: {}, scored: [] });
   const [selfScoreError, setSelfScoreError] = useState<string | null>(null);
+  const [savingScores, setSavingScores] = useState(false);
+  const [filter, setFilter] = useState<ReviewFilter>("all");
 
   const attemptIdRef = useRef<string>("");
   const questionStartRef = useRef<number>(Date.now());
@@ -327,14 +342,17 @@ export function QuizRunner({
         dequeue(submission.attempt_id);
         writeLocal(progressKey(quiz.set_id), "");
         setReview(body.review);
-        setTicks(
-          Object.fromEntries(
-            body.review.items
-              .filter((item) => item.question.type === "subjective")
-              .map((item) => [item.question.id, item.response.points_ticked]),
+
+        const toScore = itemsNeedingSelfScore(body.review.items);
+        setDraft({
+          ticks: Object.fromEntries(
+            toScore.map((item) => [item.question.id, item.response.points_ticked]),
           ),
-        );
-        setPhase("review");
+          scored: [],
+        });
+        // Only a quiz with written answers needs the scoring step; an all-MCQ
+        // attempt is already fully scored and goes straight to its result.
+        setPhase(toScore.length > 0 ? "selfScore" : "review");
         window.scrollTo({ top: 0 });
         return;
       }
@@ -364,11 +382,24 @@ export function QuizRunner({
     }
   }
 
-  async function saveSelfScore(questionId: string, indexes: number[]) {
+  /**
+   * Sends every self-score in one request, then shows the result.
+   *
+   * One request rather than one per question: the candidate is told their
+   * scores are saved exactly once, and a half-written set of scores cannot be
+   * left behind by a connection that drops midway. The server recomputes the
+   * attempt totals and returns them, so the result screen shows the Sheet's
+   * numbers rather than the browser's arithmetic.
+   */
+  async function finishSelfScoring() {
     if (!review) return;
-    setTicks((previous) => ({ ...previous, [questionId]: indexes }));
-    setSaving((previous) => new Set(previous).add(questionId));
+    setSavingScores(true);
     setSelfScoreError(null);
+
+    const updates = itemsNeedingSelfScore(review.items).map((item) => ({
+      question_id: item.question.id,
+      points_ticked: draft.ticks[item.question.id] ?? [],
+    }));
 
     try {
       const response = await fetch(
@@ -376,30 +407,65 @@ export function QuizRunner({
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            updates: [{ question_id: questionId, points_ticked: indexes }],
-          }),
+          body: JSON.stringify({ updates }),
         },
       );
+
       if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as { detail?: string };
+        const body = (await response.json().catch(() => ({}))) as {
+          detail?: string;
+        };
         setSelfScoreError(
-          body.detail ?? "Could not save that self-score. It is not recorded yet.",
+          body.detail ??
+            "Your scores could not be saved. Check your connection and try again.",
         );
         return;
       }
+
       const body = (await response.json()) as { totals: AttemptReview["totals"] };
-      setReview((previous) => (previous ? { ...previous, totals: body.totals } : previous));
+      // Fold the confirmed scores into the review so the list below shows what
+      // was ticked, alongside the totals the server just recomputed.
+      setReview((previous) =>
+        previous
+          ? {
+              ...previous,
+              totals: body.totals,
+              items: previous.items.map((item) => {
+                const ticked = draft.ticks[item.question.id];
+                if (!ticked || item.question.type !== "subjective") return item;
+                const earned = ticked.reduce(
+                  (sum, i) => sum + (item.feedback.marking_points[i]?.marks ?? 0),
+                  0,
+                );
+                const capped = Math.min(
+                  Math.round(earned * 100) / 100,
+                  item.response.max_marks,
+                );
+                return {
+                  ...item,
+                  response: {
+                    ...item.response,
+                    points_ticked: ticked,
+                    result:
+                      item.response.text.trim().length === 0
+                        ? "skipped"
+                        : "self_scored",
+                    score: item.response.text.trim().length === 0 ? 0 : capped,
+                  },
+                };
+              }),
+            }
+          : previous,
+      );
+      setPhase("review");
+      window.scrollTo({ top: 0 });
     } catch {
       setSelfScoreError(
-        "Could not reach the server, so that self-score is not saved yet.",
+        "Could not reach the server, so your scores are not saved yet. " +
+          "Check your connection and try again.",
       );
     } finally {
-      setSaving((previous) => {
-        const next = new Set(previous);
-        next.delete(questionId);
-        return next;
-      });
+      setSavingScores(false);
     }
   }
 
@@ -691,7 +757,27 @@ export function QuizRunner({
 
   if (!review) return <Spinner label="Loading your result…" />;
 
-  const totals = review.totals;
+  if (phase === "selfScore") {
+    return (
+      <SelfScore
+        items={itemsNeedingSelfScore(review.items)}
+        draft={draft}
+        onChange={setDraft}
+        onFinish={() => void finishSelfScoring()}
+        submitting={savingScores}
+        error={selfScoreError}
+      />
+    );
+  }
+
+  const counts = filterCounts(review.items);
+  const visible = filterItems(review.items, filter);
+
+  function jumpTo(questionId: string) {
+    const element = document.getElementById(`q-${questionId}`);
+    element?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div>
       <p className="mb-4">
@@ -702,59 +788,19 @@ export function QuizRunner({
 
       <PageTitle sub={`${review.candidate} · ${quiz.heading}`}>Your result</PageTitle>
 
-      <div className="card mb-4 px-4 py-4">
-        <p className="prose-legal text-3xl font-semibold tabular-nums">
-          {totals.total_score} <Muted>/ {totals.max_score}</Muted>
-          <span className="ml-2 text-lg">
-            <Muted>({totals.percent}%)</Muted>
-          </span>
+      <ScoreSummary totals={review.totals} negativeMarking={review.negative_marking} />
+
+      <ReviewFilters counts={counts} active={filter} onChange={setFilter} />
+
+      <ResultPalette items={review.items} onJump={jumpTo} />
+
+      {visible.length === 0 ? (
+        <p className="py-8 text-center text-sm">
+          <Muted>No questions in this group.</Muted>
         </p>
-
-        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          {[
-            {
-              label: "MCQ",
-              value: `${totals.mcq_score} / ${totals.mcq_max}`,
-            },
-            {
-              label: "Subjective",
-              value: `${totals.subjective_score} / ${totals.subjective_max}`,
-            },
-            { label: "Correct", value: String(totals.correct) },
-            { label: "Wrong", value: String(totals.wrong) },
-          ].map((stat) => (
-            <div key={stat.label}>
-              <dt className="text-xs uppercase tracking-wide">
-                <Muted>{stat.label}</Muted>
-              </dt>
-              <dd className="mt-0.5 font-semibold tabular-nums">{stat.value}</dd>
-            </div>
-          ))}
-        </dl>
-
-        <p className="mt-3 text-sm">
-          <Muted>
-            {totals.skipped} skipped · negative marking {review.negative_marking}
-          </Muted>
-        </p>
-
-        {totals.pending_self_score > 0 ? (
-          <p className="mt-3 text-sm" style={{ color: "var(--flag)" }}>
-            {totals.pending_self_score} written answer
-            {totals.pending_self_score === 1 ? "" : "s"} still to self-score. Tick
-            the marking points below; your total updates as you go.
-          </p>
-        ) : null}
-      </div>
-
-      {selfScoreError ? <Notice tone="error">{selfScoreError}</Notice> : null}
-
-      <ReviewList
-        review={review}
-        ticks={ticks}
-        onTick={(questionId, indexes) => void saveSelfScore(questionId, indexes)}
-        savingQuestionIds={saving}
-      />
+      ) : (
+        <ReviewList items={visible} />
+      )}
     </div>
   );
 }

@@ -24,6 +24,12 @@
   --wrong-soft: #fbeaea;
   --flag: #a66a00;
   --flag-soft: #fdf2dd;
+  --partial: #8a5a1e;
+  --partial-soft: #f7edda;
+  /* Meter tracks: a lighter step of the fill's own ramp, so the unfilled part
+     still reads as the same measure rather than as empty space. */
+  --meter-track: #ead9d6;
+  --meter-fill: #7c2d2d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -41,6 +47,10 @@
     --wrong-soft: #2c1d1d;
     --flag: #d9a94a;
     --flag-soft: #2b2314;
+    --partial: #d9a94a;
+    --partial-soft: #2b2314;
+    --meter-track: #3a2b28;
+    --meter-fill: #e2a0a0;
   }
 }
 
@@ -116,7 +126,13 @@ body {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--muted);
-  white-space: nowrap;
+  /* Topic labels from the file run long ("POCSO - punishment for aggravated
+     sexual assault"), so a badge wraps rather than running off the card. The
+     short ones still sit on one line of their own accord. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  text-align: left;
 }
 
 .btn {
@@ -275,5 +291,120 @@ a:focus-visible {
     /* A 50-question palette scrolls inside the column rather than off-screen. */
     max-height: calc(100vh - 2.5rem);
     overflow-y: auto;
+  }
+}
+
+
+/* ---- Score summary ------------------------------------------------------
+   A handful of headline numbers is a KPI row of stat tiles, not a chart: a
+   hero figure for the one number the screen leads with, a meter for each
+   ratio against its maximum. */
+
+.hero-figure {
+  /* Sans, never the serif used for legal prose: at this size a serif reads as
+     decoration rather than as data. Proportional figures, because tabular ones
+     space out badly above ~32px; tabular is for columns that must align. */
+  font-size: clamp(2.75rem, 12vw, 3.5rem);
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.hero-figure .of {
+  font-size: 0.45em;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.meter {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--meter-track);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--meter-fill);
+  /* 4px rounded data-end anchored to the baseline, per the mark spec. */
+  min-width: 0.25rem;
+  transition: width 240ms ease-out;
+}
+
+.stat-tile {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--surface);
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+.stat-value .of {
+  font-size: 0.6em;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* ---- Review filters ---------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 550;
+  white-space: nowrap;
+  min-height: 2.25rem;
+  cursor: pointer;
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chip-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.chip[aria-pressed="true"] .chip-count {
+  color: inherit;
+}
+
+/* The filter row scrolls sideways on a narrow screen rather than wrapping into
+   a tall block that pushes the results off the first view. */
+.chip-row {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: none;
+}
+
+.chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .chip-row {
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
 }

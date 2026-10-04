@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import type { AttemptReview, ReviewItem } from "@/lib/quiz/review";
+import type { ReviewItem } from "@/lib/quiz/review";
 import { QuestionBody, QuestionMeta } from "./QuestionBody";
 import { Badge, Muted, QuizText, ResourceLink } from "./primitives";
 
@@ -70,31 +70,9 @@ function McqFeedback({ item }: { item: ReviewItem }) {
   );
 }
 
-function SubjectiveFeedback({
-  item,
-  ticked,
-  onTick,
-  disabled,
-}: {
-  item: ReviewItem;
-  ticked: number[];
-  onTick: (indexes: number[]) => void;
-  disabled: boolean;
-}) {
+function SubjectiveFeedback({ item }: { item: ReviewItem }) {
   const { response, feedback } = item;
-  const tickedSet = new Set(ticked);
-  const scored = feedback.marking_points.reduce(
-    (sum, point, index) => (tickedSet.has(index) ? sum + point.marks : sum),
-    0,
-  );
-
-  function toggle(index: number) {
-    onTick(
-      tickedSet.has(index)
-        ? ticked.filter((i) => i !== index)
-        : [...ticked, index].sort((a, b) => a - b),
-    );
-  }
+  const ticked = new Set(response.points_ticked);
 
   return (
     <div className="mt-4 space-y-4">
@@ -128,35 +106,42 @@ function SubjectiveFeedback({
         <section>
           <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
             <h4 className="text-xs font-semibold uppercase tracking-wide">
-              <Muted>Marking points — tick what your answer covered</Muted>
+              <Muted>Marking points</Muted>
             </h4>
             <span className="text-xs tabular-nums">
               <Muted>
-                {Math.round(scored * 100) / 100} / {item.question.marks}
+                you scored {response.score} / {response.max_marks}
               </Muted>
             </span>
           </div>
+          {/* Read-only here: the scoring itself happened before this screen,
+              so these show which points were credited, with the mark state
+              carried by a word as well as a colour. */}
           <ul className="space-y-1.5">
-            {feedback.marking_points.map((point, index) => (
-              <li key={index}>
-                <label
-                  className="option"
-                  data-selected={tickedSet.has(index)}
+            {feedback.marking_points.map((point, index) => {
+              const credited = ticked.has(index);
+              return (
+                <li
+                  key={index}
+                  className="option cursor-default"
+                  data-verdict={credited ? "correct" : undefined}
                 >
-                  <input
-                    type="checkbox"
-                    checked={tickedSet.has(index)}
-                    onChange={() => toggle(index)}
-                    disabled={disabled}
-                    className="mt-1 flex-none"
-                  />
+                  <span
+                    aria-hidden
+                    className="option-key"
+                    style={{ color: credited ? "var(--correct)" : "var(--muted)" }}
+                  >
+                    {credited ? "✓" : "–"}
+                  </span>
                   <QuizText className="flex-1 text-sm">{point.point}</QuizText>
                   <span className="flex-none text-xs tabular-nums">
-                    <Muted>{point.marks}</Muted>
+                    <Muted>
+                      {credited ? `+${point.marks}` : `0 / ${point.marks}`}
+                    </Muted>
                   </span>
-                </label>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}
@@ -269,23 +254,19 @@ function Explanation({ feedback }: { feedback: ReviewItem["feedback"] }) {
   );
 }
 
-export function ReviewList({
-  review,
-  ticks,
-  onTick,
-  savingQuestionIds,
-}: {
-  review: AttemptReview;
-  ticks: Record<string, number[]>;
-  onTick: (questionId: string, indexes: number[]) => void;
-  savingQuestionIds: Set<string>;
-}) {
+export function ReviewList({ items }: { items: ReviewItem[] }) {
   return (
     <ol className="space-y-4">
-      {review.items.map((item) => {
+      {items.map((item) => {
         const { question, response } = item;
         return (
-          <li key={question.id} className="card px-3 py-4 sm:px-4">
+          <li
+            key={question.id}
+            id={`q-${question.id}`}
+            className="card px-3 py-4 sm:px-4"
+            // scroll-margin keeps a jumped-to question clear of the top edge.
+            style={{ scrollMarginTop: "1rem" }}
+          >
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <QuestionMeta question={question} />
               <span
@@ -307,19 +288,14 @@ export function ReviewList({
             {question.type === "mcq" ? (
               <McqFeedback item={item} />
             ) : (
-              <SubjectiveFeedback
-                item={item}
-                ticked={ticks[question.id] ?? response.points_ticked}
-                onTick={(indexes) => onTick(question.id, indexes)}
-                disabled={savingQuestionIds.has(question.id)}
-              />
+              <SubjectiveFeedback item={item} />
             )}
 
             <Explanation feedback={item.feedback} />
 
             {response.marked_for_review ? (
               <p className="mt-3">
-                <Badge>was marked for review</Badge>
+                <Badge>you marked this for review</Badge>
               </p>
             ) : null}
           </li>
