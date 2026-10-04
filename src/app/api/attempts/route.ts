@@ -1,5 +1,6 @@
 /**
- * POST /api/attempts
+ * GET  /api/attempts  — past attempts, newest first, for the home page.
+ * POST /api/attempts  — score and log a new attempt.
  *
  * Scores an attempt and logs it. The body carries only what the candidate did;
  * the answer key, the scoring and every total stay here, which is what makes
@@ -14,10 +15,49 @@ import { scoreAttempt } from "@/lib/quiz/score";
 import { buildReview } from "@/lib/quiz/review";
 import { logAttempt } from "@/lib/sheets/log";
 import { handle, jsonError, readJsonObject } from "@/lib/server/http";
-import { loadQuiz, requireConfig } from "@/lib/server/quiz-service";
+import { loadQuiz, requireConfig, syncQuizzes } from "@/lib/server/quiz-service";
+import { listAttempts } from "@/lib/sheets/log";
+import { cachedQuiz } from "@/lib/quiz/registry";
+import { quizHeading } from "@/lib/quiz/types";
 import { parseSubmission } from "@/lib/server/submission";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Headline numbers only: the fifty response rows behind each attempt are read
+ * when one is opened, not when the list is drawn.
+ */
+export async function GET(request: Request) {
+  try {
+    const config = requireConfig();
+    const url = new URL(request.url);
+    const candidate = url.searchParams.get("candidate")?.trim();
+    const limitParam = Number(url.searchParams.get("limit") ?? "");
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
+
+    const attempts = await listAttempts(config.sheetId, {
+      ...(candidate ? { candidate } : {}),
+      limit,
+    });
+
+    // Name each attempt's quiz where it is still in the folder; a retired quiz
+    // falls back to its set_id rather than showing nothing.
+    await syncQuizzes().catch(() => undefined);
+
+    return NextResponse.json({
+      attempts: attempts.map((attempt) => {
+        const quiz = cachedQuiz(attempt.set_id);
+        return {
+          ...attempt,
+          heading: quiz ? quizHeading(quiz.set) : attempt.set_id,
+        };
+      }),
+    });
+  } catch (error) {
+    return handle(error);
+  }
+}
+
 
 export async function POST(request: Request) {
   try {

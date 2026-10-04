@@ -13,7 +13,8 @@
 import { cachedQuiz } from "../quiz/registry";
 import type { ImportedQuiz } from "../quiz/registry";
 import { totalsFor, type ScoredAttempt, type ScoredResponse } from "../quiz/score";
-import { questionMarks, round2, type Question } from "../quiz/types";
+import { buildReview, type AttemptReview } from "../quiz/review";
+import { questionMarks, round2, type Question, type QuizSet } from "../quiz/types";
 import {
   ATTEMPTS_TAB,
   QUESTIONS_TAB,
@@ -136,10 +137,20 @@ interface StoredResponse {
   record: Record<string, string>;
 }
 
+/**
+ * Reads a "0, 2" cell back into rubric indexes.
+ *
+ * The empty cell is the case that matters: splitting "" yields [""], and
+ * Number("") is 0, so a naive parse reports that marking point 0 was credited
+ * on every question nobody scored. That is invented marks — it shows a
+ * candidate a tick they never made, and any later recomputation builds on it.
+ */
 function parseNumberList(value: string): number[] {
   return value
     .split(/[,\s]+/)
-    .map((part) => Number(part.trim()))
+    .map((part) => part.trim())
+    .filter((part) => part !== "")
+    .map((part) => Number(part))
     .filter((n) => Number.isInteger(n) && n >= 0);
 }
 
@@ -391,5 +402,163 @@ export async function readAttempt(
     record: attempts[0]!.record,
     responses: stored.map(({ record }) => toScoredResponse(record)),
     stored,
+  };
+}
+
+export interface AttemptSummary {
+  attempt_id: string;
+  set_id: string;
+  candidate: string;
+  submitted_at: string;
+  mode: string;
+  total_score: number;
+  max_score: number;
+  percent: number;
+  correct: number;
+  wrong: number;
+  skipped: number;
+}
+
+/**
+ * Every logged attempt, newest first.
+ *
+ * Reads the Attempts tab only — one narrow request — because the home page
+ * needs the headline numbers, not the fifty response rows behind each.
+ */
+export async function listAttempts(
+  sheetId: string,
+  options: { candidate?: string; limit?: number } = {},
+): Promise<AttemptSummary[]> {
+  const sink = sheetSink();
+  await sink.ensureTabs(sheetId);
+  const rows = await sink.readTab(sheetId, tab(ATTEMPTS_TAB));
+
+  const summaries = rows
+    .filter((row) => (row.attempt_id ?? "") !== "")
+    .filter((row) =>
+      options.candidate ? (row.candidate ?? "") === options.candidate : true,
+    )
+    .map((row) => ({
+      attempt_id: row.attempt_id ?? "",
+      set_id: row.set_id ?? "",
+      candidate: row.candidate ?? "",
+      submitted_at: row.submitted_at ?? "",
+      mode: row.mode ?? "practice",
+      total_score: Number(row.total_score ?? 0) || 0,
+      max_score: Number(row.max_score ?? 0) || 0,
+      percent: Number(row.percent ?? 0) || 0,
+      correct: Number(row.correct ?? 0) || 0,
+      wrong: Number(row.wrong ?? 0) || 0,
+      skipped: Number(row.skipped ?? 0) || 0,
+    }));
+
+  // ISO-8601 timestamps sort lexically, so newest-first needs no parsing. A
+  // row with no timestamp sorts last rather than scrambling the order.
+  summaries.sort((a, b) => {
+    if (!a.submitted_at) return 1;
+    if (!b.submitted_at) return -1;
+    return a.submitted_at < b.submitted_at ? 1 : -1;
+  });
+
+  return options.limit ? summaries.slice(0, options.limit) : summaries;
+}
+
+/**
+ * Rebuilds a complete review of a past attempt from the log alone.
+ *
+ * The Questions tab's lossless `json` column is what makes this possible: the
+ * quiz is reconstructed exactly as it was when the attempt happened, so an
+ * attempt reopened months later shows the same explanations, rubric and
+ * provenance it showed on the day — even if the quiz file has since left the
+ * Drive folder.
+ */
+export async function loadAttemptReview(
+  sheetId: string,
+  attemptId: string,
+): Promise<{ review: AttemptReview; heading: string } | null> {
+  const stored = await readAttempt(sheetId, attemptId);
+  if (!stored) return null;
+
+  const setId = stored.record.set_id ?? "";
+  const questions = await questionsForSet(sheetId, setId);
+  if (questions.length === 0) return null;
+
+  const byId = new Map(stored.responses.map((r) => [r.question_id, r]));
+  const responses = questions.map(
+    (q) =>
+      byId.get(q.id) ?? {
+        question_id: q.id,
+        question_number: q.number,
+        type: q.type,
+        result: "skipped" as const,
+        score: 0,
+        max_marks: questionMarks(q),
+        chosen: [],
+        correct_answer: q.answer ?? [],
+        text: "",
+        points_ticked: [],
+        time_spent_sec: 0,
+        changed_answer: false,
+        marked_for_review: false,
+      },
+  );
+
+  const totals = totalsFor({ questions }, responses);
+  const set = await quizSetFor(sheetId, setId, questions);
+
+  return {
+    review: buildReview(
+      set,
+      { responses, totals },
+      {
+        attemptId,
+        candidate: stored.record.candidate ?? "",
+        submittedAt: stored.record.submitted_at ?? "",
+        mode: stored.record.mode === "timed" ? "timed" : "practice",
+        negativeMarking: Number(stored.record.negative_marking ?? 0) || 0,
+      },
+    ),
+    heading: set.title || set.request.topic || setId,
+  };
+}
+
+/**
+ * The quiz a past attempt belongs to: the cached file when it is still in
+ * Drive, otherwise one assembled from the Quizzes row and the stored
+ * questions, so a retired quiz still reviews correctly.
+ */
+async function quizSetFor(
+  sheetId: string,
+  setId: string,
+  questions: Question[],
+): Promise<QuizSet> {
+  const cached = cachedQuiz(setId);
+  if (cached) return cached.set;
+
+  const rows = await sheetSink().findRows(
+    sheetId,
+    tab(QUIZZES_TAB),
+    "set_id",
+    setId,
+  );
+  const row = rows[0]?.record ?? {};
+  return {
+    schema_version: "1.1",
+    set_id: setId,
+    created: row.created ?? "",
+    ...(row.title ? { title: row.title } : {}),
+    request: {
+      topic: row.topic ?? setId,
+      question_count: Number(row.requested ?? questions.length) || questions.length,
+    },
+    law_basis: row.law_basis ?? "",
+    composition: {
+      requested: Number(row.requested ?? 0) || 0,
+      pyq: Number(row.pyq ?? 0) || 0,
+      judgment: Number(row.judgment ?? 0) || 0,
+      generated: Number(row.generated ?? 0) || 0,
+      total: questions.length,
+    },
+    questions,
   };
 }

@@ -27,16 +27,9 @@ import {
 import { Palette, paletteState, type PaletteState } from "./Palette";
 import { OptionList, SubjectiveAnswer } from "./AnswerControls";
 import { QuestionBody, QuestionMeta } from "./QuestionBody";
-import { ReviewList } from "./ReviewList";
-import { ScoreSummary } from "./ScoreSummary";
+import { ResultView } from "./ResultView";
 import { SelfScore, type SelfScoreDraft } from "./SelfScore";
-import { ResultPalette, ReviewFilters } from "./ReviewFilters";
-import {
-  filterCounts,
-  filterItems,
-  itemsNeedingSelfScore,
-  type ReviewFilter,
-} from "@/lib/quiz/filters";
+import { itemsNeedingSelfScore } from "@/lib/quiz/filters";
 import { Badge, Muted, Notice, PageTitle, QuizText, Spinner } from "./primitives";
 
 interface AnswerState {
@@ -113,7 +106,6 @@ export function QuizRunner({
   const [draft, setDraft] = useState<SelfScoreDraft>({ ticks: {}, scored: [] });
   const [selfScoreError, setSelfScoreError] = useState<string | null>(null);
   const [savingScores, setSavingScores] = useState(false);
-  const [filter, setFilter] = useState<ReviewFilter>("all");
 
   const attemptIdRef = useRef<string>("");
   const questionStartRef = useRef<number>(Date.now());
@@ -770,37 +762,12 @@ export function QuizRunner({
     );
   }
 
-  const counts = filterCounts(review.items);
-  const visible = filterItems(review.items, filter);
-
-  function jumpTo(questionId: string) {
-    const element = document.getElementById(`q-${questionId}`);
-    element?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
   return (
-    <div>
-      <p className="mb-4">
-        <Link href="/" className="text-sm underline underline-offset-2">
-          ← All quizzes
-        </Link>
-      </p>
-
-      <PageTitle sub={`${review.candidate} · ${quiz.heading}`}>Your result</PageTitle>
-
-      <ScoreSummary totals={review.totals} negativeMarking={review.negative_marking} />
-
-      <ReviewFilters counts={counts} active={filter} onChange={setFilter} />
-
-      <ResultPalette items={review.items} onJump={jumpTo} />
-
-      {visible.length === 0 ? (
-        <p className="py-8 text-center text-sm">
-          <Muted>No questions in this group.</Muted>
-        </p>
-      ) : (
-        <ReviewList items={visible} />
-      )}
-    </div>
+    <ResultView
+      review={review}
+      heading={quiz.heading}
+      backHref="/"
+      backLabel="← All quizzes"
+    />
   );
 }

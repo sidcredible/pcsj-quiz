@@ -35,6 +35,8 @@ export interface SheetSink {
     tab: TabSpec,
     updates: readonly { rowNumber: number; row: SheetRow }[],
   ): Promise<void>;
+  /** Every data row of a tab, as records keyed by column name. */
+  readTab(sheetId: string, tab: TabSpec): Promise<Record<string, string>[]>;
 }
 
 const realSink: SheetSink = {
@@ -44,6 +46,7 @@ const realSink: SheetSink = {
   upsertRows: sheetsClient.upsertRows,
   findRows: sheetsClient.findRows,
   updateRowsAt: sheetsClient.updateRowsAt,
+  readTab: sheetsClient.readTab,
 };
 
 function logPath(): string {
@@ -138,6 +141,11 @@ const dryRunSink: SheetSink = {
     for (const update of updates) rows[update.rowNumber - 2] = update.row;
     store[tab.title] = rows;
     await persist(store);
+  },
+
+  async readTab(_sheetId, tab) {
+    const store = await load();
+    return (store[tab.title] ?? []).map((row) => toRecord(tab, row));
   },
 };
 

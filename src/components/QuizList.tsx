@@ -6,9 +6,10 @@
  * score when there is one.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { CandidateQuizSummary } from "@/lib/quiz/redact";
+import { AttemptList, type AttemptCard } from "./AttemptList";
 import { Badge, Muted, Notice, PageTitle, Spinner } from "./primitives";
 
 interface QuizListEntry extends CandidateQuizSummary {
@@ -26,6 +27,8 @@ interface QuizListResponse {
 const CANDIDATE_KEY = "pcsj-quiz.candidate";
 const ALL = "all";
 
+type Tab = "quizzes" | "attempts";
+
 function readCandidate(): string {
   try {
     return window.localStorage.getItem(CANDIDATE_KEY) ?? "";
@@ -39,6 +42,10 @@ export function QuizList() {
   const [error, setError] = useState<string | null>(null);
   const [notConfigured, setNotConfigured] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [tab, setTab] = useState<Tab>("quizzes");
+  const [attempts, setAttempts] = useState<AttemptCard[] | null>(null);
+  const [mineOnly, setMineOnly] = useState(false);
+  const [candidate, setCandidate] = useState("");
   const [topic, setTopic] = useState(ALL);
   const [exam, setExam] = useState(ALL);
   const [subject, setSubject] = useState(ALL);
@@ -70,9 +77,25 @@ export function QuizList() {
     }
   }
 
-  useEffect(() => {
-    void load();
+  const loadAttempts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/attempts");
+      if (!response.ok) return;
+      const body = (await response.json()) as { attempts: AttemptCard[] };
+      setAttempts(body.attempts);
+    } catch {
+      // The quiz list is the page's job; past attempts failing to load must
+      // not take it down, so this stays silent and the tab shows its empty
+      // state.
+      setAttempts([]);
+    }
   }, []);
+
+  useEffect(() => {
+    setCandidate(readCandidate());
+    void load();
+    void loadAttempts();
+  }, [loadAttempts]);
 
   const quizzes = data?.quizzes ?? [];
 
@@ -96,9 +119,41 @@ export function QuizList() {
       (subject === ALL || quiz.subject_codes.includes(subject)),
   );
 
+  const visibleAttempts = (attempts ?? []).filter((attempt) =>
+    mineOnly && candidate ? attempt.candidate === candidate : true,
+  );
+  // Several people share this app, so the name is only worth offering as a
+  // filter when more than one of them has actually attempted something.
+  const candidates = new Set((attempts ?? []).map((a) => a.candidate));
+
   return (
     <div className="wide-shell">
       <PageTitle sub="Delhi Judicial Service · UP PCS(J)">Practice sets</PageTitle>
+
+      <div className="chip-row mb-4" role="tablist" aria-label="What to show">
+        <button
+          type="button"
+          role="tab"
+          className="chip"
+          aria-selected={tab === "quizzes"}
+          aria-pressed={tab === "quizzes"}
+          onClick={() => setTab("quizzes")}
+        >
+          Take a quiz
+          <span className="chip-count">{quizzes.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className="chip"
+          aria-selected={tab === "attempts"}
+          aria-pressed={tab === "attempts"}
+          onClick={() => setTab("attempts")}
+        >
+          Past results
+          <span className="chip-count">{attempts?.length ?? 0}</span>
+        </button>
+      </div>
 
       {error ? (
         <Notice tone="error">
@@ -135,6 +190,8 @@ export function QuizList() {
         </Notice>
       ) : null}
 
+      {tab === "quizzes" ? (
+        <>
       {quizzes.length > 1 ? (
         <div className="mb-4 grid grid-cols-1 gap-2 min-[480px]:grid-cols-3">
           {[
@@ -215,11 +272,65 @@ export function QuizList() {
         })}
       </ul>
 
+        </>
+      ) : (
+        <section aria-label="Past results">
+          {candidates.size > 1 && candidate ? (
+            <div className="chip-row mb-3">
+              <button
+                type="button"
+                className="chip"
+                aria-pressed={!mineOnly}
+                onClick={() => setMineOnly(false)}
+              >
+                Everyone
+                <span className="chip-count">{attempts?.length ?? 0}</span>
+              </button>
+              <button
+                type="button"
+                className="chip"
+                aria-pressed={mineOnly}
+                onClick={() => setMineOnly(true)}
+              >
+                {candidate}
+                <span className="chip-count">
+                  {(attempts ?? []).filter((a) => a.candidate === candidate).length}
+                </span>
+              </button>
+            </div>
+          ) : null}
+
+          {attempts === null ? <Spinner label="Loading past results…" /> : null}
+
+          {attempts !== null && visibleAttempts.length === 0 ? (
+            <p className="py-8 text-center text-sm">
+              <Muted>
+                No results yet. Finish a quiz and it will appear here, newest
+                first.
+              </Muted>
+            </p>
+          ) : null}
+
+          {visibleAttempts.length > 0 ? (
+            <AttemptList
+              attempts={visibleAttempts}
+              // Whose result it is matters even when only one person has
+              // attempted anything; it is only noise once the list is already
+              // narrowed to that person.
+              showCandidate={!mineOnly}
+            />
+          ) : null}
+        </section>
+      )}
+
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button
           type="button"
           className="btn"
-          onClick={() => void load(true)}
+          onClick={() => {
+            void load(true);
+            void loadAttempts();
+          }}
           disabled={refreshing}
         >
           {refreshing ? "Refreshing…" : "Refresh"}

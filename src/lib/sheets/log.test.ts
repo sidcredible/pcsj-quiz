@@ -85,6 +85,25 @@ const updateRowsAt = vi.fn(
   },
 );
 
+const readTab = vi.fn(
+  async (_id: string, tab: { title: string; columns: readonly string[] }) =>
+    (sheet.get(tab.title) ?? []).map((row) => {
+      const record: Record<string, string> = {};
+      tab.columns.forEach((name, i) => {
+        const cell = row[i];
+        record[name] =
+          cell === undefined || cell === null
+            ? ""
+            : typeof cell === "boolean"
+              ? cell
+                ? "TRUE"
+                : "FALSE"
+              : String(cell);
+      });
+      return record;
+    }),
+);
+
 const appendRows = vi.fn(
   async (_id: string, tab: { title: string }, rows: readonly SheetRow[]) => {
     sheet.set(tab.title, [...(sheet.get(tab.title) ?? []), ...rows]);
@@ -99,6 +118,7 @@ vi.mock("./sink", () => ({
     upsertRows,
     findRows,
     updateRowsAt,
+    readTab,
   }),
   resetDryRunStore: vi.fn(),
 }));
@@ -106,8 +126,15 @@ vi.mock("./sink", () => ({
 const cachedQuiz = vi.fn();
 vi.mock("../quiz/registry", () => ({ cachedQuiz }));
 
-const { applySelfScores, lastScoresByCandidate, logAttempt, logQuizImport, readAttempt } =
-  await import("./log");
+const {
+  applySelfScores,
+  lastScoresByCandidate,
+  listAttempts,
+  loadAttemptReview,
+  logAttempt,
+  logQuizImport,
+  readAttempt,
+} = await import("./log");
 const { SAMPLE_SET } = await import("../quiz/__fixtures__/sample-set");
 const { scoreAttempt } = await import("../quiz/score");
 
@@ -426,6 +453,128 @@ describe("applySelfScores", () => {
     await expect(applySelfScores(SHEET, "nope", [])).rejects.toThrow(
       "No responses logged",
     );
+  });
+});
+
+describe("reading stored responses back", () => {
+  it("treats an empty points_ticked cell as no points, not point 0", async () => {
+    // The bug this guards: splitting "" gives [""], and Number("") is 0, so a
+    // naive parse credits marking point 0 on every unscored question — marks
+    // the candidate never earned, shown back to them as a tick.
+    const scored = scoreAttempt(
+      SAMPLE_SET,
+      [{ question_id: "2026-10-04_sample_Q10", text: "written but unscored" }],
+      0,
+    );
+    await logQuizImport(SHEET, QUIZ);
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+
+    const read = await readAttempt(SHEET, "attempt-1");
+    const pending = read!.responses.find(
+      (r) => r.question_id === "2026-10-04_sample_Q10",
+    )!;
+    expect(pending.result).toBe("pending_self_score");
+    expect(pending.points_ticked).toEqual([]);
+
+    // And every untouched question likewise.
+    for (const response of read!.responses) {
+      if (response.result === "skipped") {
+        expect(response.points_ticked).toEqual([]);
+      }
+    }
+  });
+
+  it("reads a real tick list back intact", async () => {
+    const scored = scoreAttempt(
+      SAMPLE_SET,
+      [{ question_id: "2026-10-04_sample_Q10", text: "x", points_ticked: [0, 2] }],
+      0,
+    );
+    await logQuizImport(SHEET, QUIZ);
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+
+    const read = await readAttempt(SHEET, "attempt-1");
+    const item = read!.responses.find(
+      (r) => r.question_id === "2026-10-04_sample_Q10",
+    )!;
+    expect(item.points_ticked).toEqual([0, 2]);
+  });
+});
+
+describe("listAttempts", () => {
+  it("returns attempts newest first", async () => {
+    const scored = scoreAttempt(SAMPLE_SET, [], 0);
+    await logAttempt(SHEET, { ...SUBMISSION, attemptId: "older",
+      submittedAt: "2026-10-01T10:00:00Z" }, SAMPLE_SET.questions, scored);
+    await logAttempt(SHEET, { ...SUBMISSION, attemptId: "newest",
+      submittedAt: "2026-10-09T10:00:00Z" }, SAMPLE_SET.questions, scored);
+    await logAttempt(SHEET, { ...SUBMISSION, attemptId: "middle",
+      submittedAt: "2026-10-05T10:00:00Z" }, SAMPLE_SET.questions, scored);
+
+    const list = await listAttempts(SHEET);
+    expect(list.map((a) => a.attempt_id)).toEqual(["newest", "middle", "older"]);
+  });
+
+  it("narrows to one candidate when asked", async () => {
+    const scored = scoreAttempt(SAMPLE_SET, [], 0);
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+    await logAttempt(SHEET, { ...SUBMISSION, attemptId: "other", candidate: "Pallavi" },
+      SAMPLE_SET.questions, scored);
+
+    const mine = await listAttempts(SHEET, { candidate: "Sid" });
+    expect(mine.map((a) => a.candidate)).toEqual(["Sid"]);
+  });
+
+  it("caps the list when given a limit", async () => {
+    const scored = scoreAttempt(SAMPLE_SET, [], 0);
+    for (let i = 0; i < 5; i += 1) {
+      await logAttempt(SHEET, { ...SUBMISSION, attemptId: `a${i}`,
+        submittedAt: `2026-10-0${i + 1}T10:00:00Z` }, SAMPLE_SET.questions, scored);
+    }
+    expect(await listAttempts(SHEET, { limit: 2 })).toHaveLength(2);
+  });
+
+  it("is empty when nothing has been attempted", async () => {
+    expect(await listAttempts(SHEET)).toEqual([]);
+  });
+});
+
+describe("loadAttemptReview", () => {
+  it("rebuilds a past attempt with its explanations from the log alone", async () => {
+    const scored = scoreAttempt(
+      SAMPLE_SET,
+      [
+        { question_id: "2026-10-04_sample_Q01", chosen: ["a"] },
+        { question_id: "2026-10-04_sample_Q10", text: "x", points_ticked: [0, 1] },
+      ],
+      0.25,
+    );
+    await logQuizImport(SHEET, QUIZ);
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+
+    // Serverless cold start: the quiz is no longer cached, so everything must
+    // come from the Questions tab's json column.
+    cachedQuiz.mockReturnValue(undefined);
+
+    const found = await loadAttemptReview(SHEET, "attempt-1");
+    expect(found).not.toBeNull();
+    expect(found!.review.items).toHaveLength(SAMPLE_SET.questions.length);
+    expect(found!.review.candidate).toBe("Sid");
+
+    const wrong = found!.review.items.find(
+      (i) => i.question.id === "2026-10-04_sample_Q01",
+    )!;
+    expect(wrong.response.result).toBe("wrong");
+    expect(wrong.feedback.why_correct).toBeTruthy();
+    expect(wrong.feedback.why_others_wrong?.a).toBeTruthy();
+
+    // Totals recomputed from the stored rows must match what was logged.
+    expect(found!.review.totals.total_score).toBe(scored.totals.total_score);
+    expect(found!.review.totals.max_score).toBe(scored.totals.max_score);
+  });
+
+  it("returns null for an attempt that was never logged", async () => {
+    expect(await loadAttemptReview(SHEET, "nope")).toBeNull();
   });
 });
 
