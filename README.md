@@ -65,6 +65,26 @@ has.
    ```
 
    The key is read server-side only and is never sent to the browser.
+
+   **Prefer not to paste the key JSON by hand.** It is ~2,300 characters of
+   quotes, braces and backslash-n; pasting it into a dashboard field truncates
+   or mangles it often enough that the app has specific handling for both. Two
+   better routes, either of which avoids the clipboard:
+
+   ```bash
+   # Pipe the file straight in — nothing is pasted, nothing can be cut off
+   vercel env add GOOGLE_SERVICE_ACCOUNT_KEY production < service-account.json
+
+   # Or encode it: a flat string with no quotes, newlines or backslashes
+   base64 -w0 service-account.json      # Linux
+   base64 -i service-account.json       # macOS
+   # then set the result as GOOGLE_SERVICE_ACCOUNT_KEY_BASE64
+   ```
+
+   The app tries `GOOGLE_SERVICE_ACCOUNT_KEY`, then
+   `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64`, then `GOOGLE_SERVICE_ACCOUNT_KEY_FILE`,
+   and uses the first that yields a usable key — so a bad value left in one
+   variable does not block a good one in another.
 5. `npm run dev`, or deploy to Vercel with the same variables set in the
    project settings.
 
