@@ -37,6 +37,7 @@ function readCandidate(): string {
 export function QuizList() {
   const [data, setData] = useState<QuizListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notConfigured, setNotConfigured] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [topic, setTopic] = useState(ALL);
   const [exam, setExam] = useState(ALL);
@@ -57,8 +58,10 @@ export function QuizList() {
       };
       if (!response.ok) {
         setError(body.detail ?? body.error ?? "Could not load the quizzes.");
+        setNotConfigured(response.status === 503);
         return;
       }
+      setNotConfigured(false);
       setData(body);
     } catch {
       setError("Could not reach the server. Check your connection.");
@@ -97,7 +100,25 @@ export function QuizList() {
     <div>
       <PageTitle sub="Delhi Judicial Service · UP PCS(J)">Practice sets</PageTitle>
 
-      {error ? <Notice tone="error">{error}</Notice> : null}
+      {error ? (
+        <Notice tone="error">
+          <p>{error}</p>
+          {notConfigured ? (
+            <p className="mt-2">
+              Open{" "}
+              <a
+                href="/api/health?check=google"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2"
+              >
+                /api/health
+              </a>{" "}
+              to see which setting is missing. It shows no secret values.
+            </p>
+          ) : null}
+        </Notice>
+      ) : null}
       {data?.scan_error ? (
         <Notice tone="warn">
           Could not read the Drive folder: {data.scan_error}

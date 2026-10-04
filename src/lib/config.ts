@@ -82,3 +82,102 @@ export function hasGoogleCredentials(): boolean {
       process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE?.trim(),
   );
 }
+
+/** How a single environment variable looks, with no value ever revealed. */
+export interface EnvVarStatus {
+  name: string;
+  present: boolean;
+  /** Character length, which distinguishes a truncated paste from a whole one. */
+  length: number;
+  note?: string;
+}
+
+export interface ConfigDiagnosis {
+  ok: boolean;
+  /** The variables that must be set for the app to work, and whether they are. */
+  variables: EnvVarStatus[];
+  /** What to do next, in the order worth trying. */
+  problems: string[];
+  mode: "google" | "local";
+}
+
+function statusOf(name: string, note?: string): EnvVarStatus {
+  const raw = process.env[name];
+  const value = raw?.trim() ?? "";
+  return {
+    name,
+    present: value.length > 0,
+    length: value.length,
+    ...(note ? { note } : {}),
+  };
+}
+
+/**
+ * Explains exactly which piece of configuration is missing or malformed.
+ *
+ * Deliberately reports only presence, length and parse status — never a value,
+ * and never any part of the private key — so it is safe to expose on a
+ * deployment that is failing and safe to paste into a bug report.
+ */
+export function diagnoseConfig(): ConfigDiagnosis {
+  const local = usingFixtures() && dryRunSheets();
+  const variables = [
+    statusOf("GOOGLE_SERVICE_ACCOUNT_KEY", "the whole key JSON, on one line"),
+    statusOf("GOOGLE_SERVICE_ACCOUNT_KEY_FILE", "local development only"),
+    statusOf("DRIVE_FOLDER_ID"),
+    statusOf("SHEET_ID"),
+  ];
+  const problems: string[] = [];
+
+  const inlineKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY?.trim();
+  const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE?.trim();
+
+  if (!local && !inlineKey && !keyFile) {
+    problems.push(
+      "GOOGLE_SERVICE_ACCOUNT_KEY is not set on this deployment. Add it in " +
+        "Vercel under Settings > Environment Variables, tick every " +
+        "environment (Production, Preview and Development), then redeploy — " +
+        "a variable added after a build does not reach the already-deployed " +
+        "functions.",
+    );
+  }
+
+  if (inlineKey) {
+    // The most common paste mistakes, each with a distinct symptom.
+    try {
+      const parsed = JSON.parse(inlineKey) as Record<string, unknown>;
+      if (typeof parsed.client_email !== "string") {
+        problems.push("GOOGLE_SERVICE_ACCOUNT_KEY parses but has no client_email.");
+      }
+      const privateKey = parsed.private_key;
+      if (typeof privateKey !== "string") {
+        problems.push("GOOGLE_SERVICE_ACCOUNT_KEY parses but has no private_key.");
+      } else if (!privateKey.includes("BEGIN PRIVATE KEY")) {
+        problems.push(
+          "GOOGLE_SERVICE_ACCOUNT_KEY has a private_key that does not look " +
+            "like a PEM key; it may have been truncated when pasted.",
+        );
+      }
+    } catch {
+      problems.push(
+        "GOOGLE_SERVICE_ACCOUNT_KEY is set but is not valid JSON. Paste the " +
+          "whole file contents including the outer { }, with the private_key " +
+          "newlines left as the literal \\n they are in the file.",
+      );
+    }
+  }
+
+  if (!local && !process.env.DRIVE_FOLDER_ID?.trim()) {
+    problems.push("DRIVE_FOLDER_ID is not set.");
+  }
+  if (!local && !process.env.SHEET_ID?.trim()) {
+    problems.push("SHEET_ID is not set.");
+  }
+
+  return {
+    ok: problems.length === 0,
+    variables,
+    problems,
+    mode: local ? "local" : "google",
+  };
+}

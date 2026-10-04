@@ -71,6 +71,22 @@ has.
 `/admin` shows what imported, what was rejected and why, and any file that
 imported with warnings.
 
+### When a deployment says "not configured"
+
+Open **`/api/health`** on the deployment. It names the variable that is
+missing or malformed and what to do about it. `/api/health?check=google` goes
+further and proves the service account can actually list the Drive folder and
+open the Sheet, which is a different thing from the variables being present.
+
+It reports presence, length and JSON-parse status only — never a value, and
+never any part of the private key — so it is safe to open on a public
+deployment and safe to paste into a bug report.
+
+The usual cause on Vercel is a variable added *after* the last build: adding
+one does not reach already-deployed functions, so redeploy. The second usual
+cause is the variable being set for only one environment — tick Production,
+Preview and Development.
+
 ## How answers are kept secret
 
 The acceptance criterion is that no answer, explanation or rubric is visible

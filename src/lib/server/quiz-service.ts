@@ -6,7 +6,7 @@
  * answer key lives behind this module and runs server-side only.
  */
 
-import { appConfig, hasGoogleCredentials } from "../config";
+import { appConfig, diagnoseConfig, hasGoogleCredentials } from "../config";
 import { logQuizImport } from "../sheets/log";
 import {
   cachedQuiz,
@@ -24,8 +24,12 @@ export class NotConfiguredError extends Error {
 
 export function requireConfig() {
   if (!hasGoogleCredentials()) {
+    // Say which variable is missing and why it might be missing even though it
+    // was added: "credentials are not set" alone sends people hunting.
+    const diagnosis = diagnoseConfig();
     throw new NotConfiguredError(
-      "Google credentials are not set. See .env.example and README.",
+      diagnosis.problems.join(" ") ||
+        "Google credentials are not set. See .env.example and README.",
     );
   }
   return appConfig();
