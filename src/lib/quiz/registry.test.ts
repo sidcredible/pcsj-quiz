@@ -3,12 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const listQuizFiles = vi.fn();
 const downloadQuizFile = vi.fn();
 
-vi.mock("../drive/client", async () => {
-  const actual = await vi.importActual<typeof import("../drive/client")>(
-    "../drive/client",
-  );
-  return { ...actual, listQuizFiles, downloadQuizFile };
-});
+// The registry talks to a QuizSource, so the fake stands in for the source
+// rather than for the Drive client underneath it.
+vi.mock("../drive/source", () => ({
+  quizSource: () => ({
+    kind: "drive" as const,
+    description: "fake source",
+    list: listQuizFiles,
+    download: downloadQuizFile,
+  }),
+  usingFixtures: () => false,
+}));
 
 const { cachedQuiz, refreshRegistry, resetRegistry } = await import("./registry");
 const { SAMPLE_SET } = await import("./__fixtures__/sample-set");

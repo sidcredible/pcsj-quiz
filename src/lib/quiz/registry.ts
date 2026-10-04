@@ -11,12 +11,8 @@
  * onImported hook, which the Sheets layer supplies.
  */
 
-import {
-  downloadQuizFile,
-  listQuizFiles,
-  setIdFromFileName,
-  type DriveQuizFile,
-} from "../drive/client";
+import { setIdFromFileName, type DriveQuizFile } from "../drive/client";
+import { quizSource, type QuizSource } from "../drive/source";
 import { consistencyWarnings, validateQuizSet } from "./validate";
 import type { QuizSet } from "./types";
 
@@ -70,6 +66,8 @@ export interface RefreshOptions {
   force?: boolean;
   onImported?: ImportHook;
   now?: () => number;
+  /** Defaults to Drive, or the fixture directory when one is configured. */
+  source?: QuizSource;
 }
 
 function isFresh(scannedAt: number | null, refreshMinutes: number, now: number) {
@@ -90,10 +88,11 @@ function snapshot(): RegistrySnapshot {
 async function importFile(
   file: DriveQuizFile,
   onImported: ImportHook | undefined,
+  source: QuizSource,
 ): Promise<void> {
   let raw: unknown;
   try {
-    raw = await downloadQuizFile(file.id);
+    raw = await source.download(file.id);
   } catch (error) {
     state.rejected.set(file.name, {
       fileName: file.name,
@@ -160,10 +159,12 @@ export async function refreshRegistry(
   // Concurrent requests on a cold cache must not each hit Drive.
   if (state.inFlight) return state.inFlight;
 
+  const source = options.source ?? quizSource();
+
   const run = (async (): Promise<RegistrySnapshot> => {
     let files: DriveQuizFile[];
     try {
-      files = await listQuizFiles(options.folderId);
+      files = await source.list(options.folderId);
       delete state.scanError;
     } catch (error) {
       state.scanError =
@@ -191,7 +192,7 @@ export async function refreshRegistry(
         // Still broken, and not re-downloaded; keep the existing error.
         continue;
       }
-      await importFile(file, options.onImported);
+      await importFile(file, options.onImported, source);
       const imported = state.byFileName.get(file.name);
       if (imported) ordered.set(file.name, imported);
     }

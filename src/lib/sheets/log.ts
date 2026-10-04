@@ -22,17 +22,12 @@ import {
   TABS,
   type TabSpec,
 } from "./columns";
-import {
-  appendRows,
-  ensureTabs,
-  findRows,
-  updateRowsAt,
-  upsertRows,
-} from "./client";
+import { sheetSink } from "./sink";
 import {
   attemptRow,
   questionRows,
   quizRow,
+  responseId,
   responseRow,
   type AttemptMode,
   type AttemptRecord,
@@ -55,9 +50,10 @@ export async function logQuizImport(
   sheetId: string,
   quiz: ImportedQuiz,
 ): Promise<void> {
-  await ensureTabs(sheetId);
-  await upsertRows(sheetId, tab(QUIZZES_TAB), [quizRow(quiz)]);
-  await upsertRows(sheetId, tab(QUESTIONS_TAB), questionRows(quiz));
+  const sink = sheetSink();
+  await sink.ensureTabs(sheetId);
+  await sink.upsertRows(sheetId, tab(QUIZZES_TAB), [quizRow(quiz)]);
+  await sink.upsertRows(sheetId, tab(QUESTIONS_TAB), questionRows(quiz));
 }
 
 export interface AttemptSubmission {
@@ -72,29 +68,66 @@ export interface AttemptSubmission {
   device: Device;
 }
 
+export interface LogAttemptResult {
+  /** False when this attempt was already fully logged, so nothing was written. */
+  written: boolean;
+  responsesAppended: number;
+}
+
 /**
- * Writes one Attempts row and N Responses rows. Upserted rather than blindly
- * appended so a retried submission (the client queue may send the same attempt
- * twice after an outage) cannot double-log it.
+ * Writes one Attempts row and N Responses rows.
+ *
+ * An attempt is submitted once, but the client queue may send it more than
+ * once: the same attempt_id arrives again after an outage, a double tap or a
+ * reopened tab. Such a retry must change nothing that has happened since, so
+ * rows already present are left strictly alone and only missing ones are
+ * added.
+ *
+ * Overwriting instead would be actively destructive: between the first submit
+ * and the retry the candidate may have self-scored a written answer, and
+ * rewriting that row with the submission's own "pending_self_score" would
+ * throw the self-score away and leave the attempt totals wrong.
  */
 export async function logAttempt(
   sheetId: string,
   submission: AttemptSubmission,
   questions: readonly Question[],
   scored: ScoredAttempt,
-): Promise<void> {
-  await ensureTabs(sheetId);
+): Promise<LogAttemptResult> {
+  const sink = sheetSink();
+  await sink.ensureTabs(sheetId);
 
   const record: AttemptRecord = { ...submission };
   const byId = new Map(questions.map((q) => [q.id, q]));
+
+  const [existingAttempt, existingResponses] = await Promise.all([
+    sink.findRows(sheetId, tab(ATTEMPTS_TAB), "attempt_id", record.attemptId),
+    sink.findRows(sheetId, tab(RESPONSES_TAB), "attempt_id", record.attemptId),
+  ]);
+  const loggedResponseIds = new Set(
+    existingResponses.map(({ record: row }) => row.response_id ?? ""),
+  );
+
+  // Only rows this attempt does not already have. A first submit writes all of
+  // them; a retry usually writes none, and a retry after a partial failure
+  // writes exactly the ones that never landed.
   const rows: SheetRow[] = [];
   for (const response of scored.responses) {
     const question = byId.get(response.question_id);
-    if (question) rows.push(responseRow(record, question, response));
+    if (!question) continue;
+    if (loggedResponseIds.has(responseId(record.attemptId, question.id))) continue;
+    rows.push(responseRow(record, question, response));
   }
 
-  await upsertRows(sheetId, tab(ATTEMPTS_TAB), [attemptRow(record, scored)]);
-  await upsertRows(sheetId, tab(RESPONSES_TAB), rows);
+  if (existingAttempt.length === 0) {
+    await sink.upsertRows(sheetId, tab(ATTEMPTS_TAB), [attemptRow(record, scored)]);
+  }
+  await sink.upsertRows(sheetId, tab(RESPONSES_TAB), rows);
+
+  return {
+    written: existingAttempt.length === 0 || rows.length > 0,
+    responsesAppended: rows.length,
+  };
 }
 
 /** A Responses row read back, with enough to recompute a score. */
@@ -151,7 +184,12 @@ async function questionsForSet(
   const cached = cachedQuiz(setId);
   if (cached) return cached.set.questions;
 
-  const rows = await findRows(sheetId, tab(QUESTIONS_TAB), "set_id", setId);
+  const rows = await sheetSink().findRows(
+    sheetId,
+    tab(QUESTIONS_TAB),
+    "set_id",
+    setId,
+  );
   const questions: Question[] = [];
   for (const { record } of rows) {
     if (!record.json) continue;
@@ -189,10 +227,11 @@ export async function applySelfScores(
   attemptId: string,
   updates: readonly SelfScoreUpdate[],
 ): Promise<SelfScoreResult> {
-  await ensureTabs(sheetId);
+  const sink = sheetSink();
+  await sink.ensureTabs(sheetId);
 
   const responsesTab = tab(RESPONSES_TAB);
-  const stored: StoredResponse[] = await findRows(
+  const stored: StoredResponse[] = await sink.findRows(
     sheetId,
     responsesTab,
     "attempt_id",
@@ -217,7 +256,7 @@ export async function applySelfScores(
   const questionById = new Map(questions.map((q) => [q.id, q]));
   const updateById = new Map(updates.map((u) => [u.questionId, u]));
 
-  const attemptMeta = await findRows(
+  const attemptMeta = await sink.findRows(
     sheetId,
     tab(ATTEMPTS_TAB),
     "attempt_id",
@@ -283,11 +322,11 @@ export async function applySelfScores(
     });
   }
 
-  await updateRowsAt(sheetId, responsesTab, rowUpdates);
+  await sink.updateRowsAt(sheetId, responsesTab, rowUpdates);
 
   const totals = totalsFor({ questions }, allResponses);
   if (attemptRecord) {
-    await updateRowsAt(sheetId, tab(ATTEMPTS_TAB), [
+    await sink.updateRowsAt(sheetId, tab(ATTEMPTS_TAB), [
       {
         rowNumber: attemptRecord.rowNumber,
         row: attemptRow(record, { responses: allResponses, totals }),
@@ -303,7 +342,7 @@ export async function lastScoresByCandidate(
   sheetId: string,
   candidate: string,
 ): Promise<Map<string, { percent: number; submittedAt: string }>> {
-  const rows = await findRows(
+  const rows = await sheetSink().findRows(
     sheetId,
     tab(ATTEMPTS_TAB),
     "candidate",
@@ -333,15 +372,16 @@ export async function readAttempt(
   responses: ScoredResponse[];
   stored: StoredResponse[];
 } | null> {
-  await ensureTabs(sheetId);
-  const attempts = await findRows(
+  const sink = sheetSink();
+  await sink.ensureTabs(sheetId);
+  const attempts = await sink.findRows(
     sheetId,
     tab(ATTEMPTS_TAB),
     "attempt_id",
     attemptId,
   );
   if (attempts.length === 0) return null;
-  const stored = await findRows(
+  const stored = await sink.findRows(
     sheetId,
     tab(RESPONSES_TAB),
     "attempt_id",
@@ -353,5 +393,3 @@ export async function readAttempt(
     stored,
   };
 }
-
-export { appendRows, ensureTabs };

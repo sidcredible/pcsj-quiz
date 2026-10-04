@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+/*
+ * Mobile first throughout: most candidates are on a phone, so the base styles
+ * target a 360px viewport and widen from there. Nothing may scroll sideways.
+ */
+:root {
+  --bg: #faf8f4;
+  --surface: #ffffff;
+  --border: #e3ddd1;
+  --text: #1b1a17;
+  --muted: #6b6558;
+  --accent: #7c2d2d;
+  --accent-soft: #f4e8e4;
+  --correct: #1f6b45;
+  --correct-soft: #e8f3ec;
+  --wrong: #a32a2a;
+  --wrong-soft: #fbeaea;
+  --flag: #a66a00;
+  --flag-soft: #fdf2dd;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14130f;
+    --surface: #1d1b17;
+    --border: #322e26;
+    --text: #f2eee6;
+    --muted: #a39b8a;
+    --accent: #e2a0a0;
+    --accent-soft: #2e2320;
+    --correct: #6ec496;
+    --correct-soft: #1a2a21;
+    --wrong: #e78b8b;
+    --wrong-soft: #2c1d1d;
+    --flag: #d9a94a;
+    --flag-soft: #2b2314;
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.55;
+  overflow-x: hidden;
+}
+
+/* Every string from the quiz file is plain text with \n for line breaks. */
+.quiz-text {
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+/* Legal prose reads better with a serif at length. */
+.prose-legal {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 0.6rem;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  /* 44px minimum touch target. */
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-primary {
+    color: #14130f;
+  }
+}
+
+.field {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  color: var(--text);
+  /* 16px stops iOS zooming the viewport on focus. */
+  font-size: 1rem;
+  min-height: 2.75rem;
+}
+
+.field:focus-visible,
+.btn:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* An option is a large tap target, not a small radio dot. */
+.option {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.option[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.option[data-verdict="correct"] {
+  border-color: var(--correct);
+  background: var(--correct-soft);
+}
+
+.option[data-verdict="wrong"] {
+  border-color: var(--wrong);
+  background: var(--wrong-soft);
+}
+
+.option-key {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--muted);
+}

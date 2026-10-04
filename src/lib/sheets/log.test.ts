@@ -91,15 +91,16 @@ const appendRows = vi.fn(
   },
 );
 
-vi.mock("./client", () => ({
-  ensureTabs,
-  upsertRows,
-  findRows,
-  updateRowsAt,
-  appendRows,
-  keyRowNumbers: vi.fn(),
-  readTab: vi.fn(),
-  resetTabCache: vi.fn(),
+vi.mock("./sink", () => ({
+  sheetSink: () => ({
+    kind: "sheets" as const,
+    description: "fake sink",
+    ensureTabs,
+    upsertRows,
+    findRows,
+    updateRowsAt,
+  }),
+  resetDryRunStore: vi.fn(),
 }));
 
 const cachedQuiz = vi.fn();
@@ -194,10 +195,72 @@ describe("logAttempt", () => {
   it("does not double-log an attempt the client queue retries", async () => {
     const scored = scoreAttempt(SAMPLE_SET, [], 0);
     await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
-    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+    const second = await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
 
     expect(rowsOf("Attempts")).toHaveLength(1);
     expect(rowsOf("Responses")).toHaveLength(SAMPLE_SET.questions.length);
+    expect(second).toEqual({ written: false, responsesAppended: 0 });
+  });
+
+  it("does not let a retry undo a self-score made in between", async () => {
+    // The destructive case: submit, self-score a written answer, then the
+    // queue re-sends the original submission. The retry must not rewrite that
+    // row back to pending_self_score and lose the marks.
+    const scored = scoreAttempt(
+      SAMPLE_SET,
+      [{ question_id: "2026-10-04_sample_Q10", text: "s.10, 5-7 years" }],
+      0,
+    );
+    await logQuizImport(SHEET, QUIZ);
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+    await applySelfScores(SHEET, "attempt-1", [
+      { questionId: "2026-10-04_sample_Q10", pointsTicked: [0, 1], notes: "keep" },
+    ]);
+
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+
+    const row = rowsOf("Responses").find(
+      (r) => cell(RESPONSES_COLUMNS, r, "question_id") === "2026-10-04_sample_Q10",
+    )!;
+    expect(cell(RESPONSES_COLUMNS, row, "result")).toBe("self_scored");
+    expect(cell(RESPONSES_COLUMNS, row, "score")).toBe(2.5);
+    expect(cell(RESPONSES_COLUMNS, row, "notes")).toBe("keep");
+  });
+
+  it("does not reset recomputed attempt totals on a retry", async () => {
+    const scored = scoreAttempt(
+      SAMPLE_SET,
+      [{ question_id: "2026-10-04_sample_Q10", text: "s.10, 5-7 years" }],
+      0,
+    );
+    await logQuizImport(SHEET, QUIZ);
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+    await applySelfScores(SHEET, "attempt-1", [
+      { questionId: "2026-10-04_sample_Q10", pointsTicked: [0, 1] },
+    ]);
+
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+
+    const attempt = rowsOf("Attempts")[0]!;
+    expect(cell(ATTEMPTS_COLUMNS, attempt, "subjective_score")).toBe(2.5);
+    expect(cell(ATTEMPTS_COLUMNS, attempt, "total_score")).toBe(2.5);
+  });
+
+  it("completes a submission whose Responses rows only partly landed", async () => {
+    // A first submit that died mid-write leaves some rows missing; the retry
+    // must fill exactly those, not duplicate the ones already there.
+    const scored = scoreAttempt(SAMPLE_SET, [], 0);
+    await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+    sheet.set("Responses", rowsOf("Responses").slice(0, 4));
+
+    const result = await logAttempt(SHEET, SUBMISSION, SAMPLE_SET.questions, scored);
+
+    expect(result.responsesAppended).toBe(SAMPLE_SET.questions.length - 4);
+    expect(rowsOf("Responses")).toHaveLength(SAMPLE_SET.questions.length);
+    const ids = rowsOf("Responses").map((r) =>
+      cell(RESPONSES_COLUMNS, r, "response_id"),
+    );
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
