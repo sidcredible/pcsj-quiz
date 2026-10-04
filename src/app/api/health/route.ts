@@ -42,16 +42,26 @@ export async function GET(request: Request) {
 /** Proves the service account can actually reach the folder and the Sheet. */
 async function checkGoogle(): Promise<Record<string, unknown>> {
   const result: Record<string, unknown> = {};
+  const { diagnoseGoogleError } = await import("@/lib/google/diagnose");
+  const { appConfig } = await import("@/lib/config");
 
-  try {
-    const { serviceAccountEmail } = await import("@/lib/google/auth");
-    result.service_account = serviceAccountEmail();
-  } catch (error) {
-    result.service_account = errorText(error);
+  // Describe the key before using it: a key that cannot be read makes both
+  // checks below fail with the same opaque error, and the shape of the PEM is
+  // what says whether an environment variable mangled it.
+  const { describeCredentials } = await import("@/lib/google/auth");
+  const credentials = describeCredentials();
+  result.credentials = credentials;
+
+  if (!credentials.ok) {
+    result.drive = { skipped: "the private key could not be read" };
+    result.sheet = { skipped: "the private key could not be read" };
+    return result;
   }
 
+  const email = credentials.client_email;
+  result.service_account = email;
+
   try {
-    const { appConfig } = await import("@/lib/config");
     const { listQuizFiles } = await import("@/lib/drive/client");
     const files = await listQuizFiles(appConfig().driveFolderId);
     result.drive = {
@@ -60,28 +70,25 @@ async function checkGoogle(): Promise<Record<string, unknown>> {
       newest: files[0]?.name ?? null,
     };
   } catch (error) {
-    result.drive = {
-      ok: false,
-      error: errorText(error),
-      hint:
-        "Share the PCSJ Quizzes folder with the service account email above " +
-        "as Viewer, and make sure the Drive API is enabled on its project.",
-    };
+    const message = errorText(error);
+    const failure = diagnoseGoogleError(message, {
+      target: "folder",
+      ...(email ? { serviceAccountEmail: email } : {}),
+    });
+    result.drive = { ok: false, problem: failure.kind, error: message, hint: failure.hint };
   }
 
   try {
-    const { appConfig } = await import("@/lib/config");
     const { ensureTabs } = await import("@/lib/sheets/client");
     await ensureTabs(appConfig().sheetId);
     result.sheet = { ok: true };
   } catch (error) {
-    result.sheet = {
-      ok: false,
-      error: errorText(error),
-      hint:
-        "Share the PCSJ Quiz Log sheet with the service account email above " +
-        "as Editor, and make sure the Sheets API is enabled on its project.",
-    };
+    const message = errorText(error);
+    const failure = diagnoseGoogleError(message, {
+      target: "sheet",
+      ...(email ? { serviceAccountEmail: email } : {}),
+    });
+    result.sheet = { ok: false, problem: failure.kind, error: message, hint: failure.hint };
   }
 
   return result;

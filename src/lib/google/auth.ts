@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { GoogleAuth, type JWT } from "google-auth-library";
 import { ConfigError } from "../config";
+import { describePem, repairPem, type PemShape } from "./pem";
 
 export const SCOPES = [
   "https://www.googleapis.com/auth/drive.readonly",
@@ -20,6 +21,8 @@ interface ServiceAccountKey {
   client_email: string;
   private_key: string;
   project_id?: string;
+  /** What repairPem had to do to make the key usable; empty when intact. */
+  repairs: string[];
 }
 
 function parseKey(raw: string, origin: string): ServiceAccountKey {
@@ -37,12 +40,44 @@ function parseKey(raw: string, origin: string): ServiceAccountKey {
       `${origin} is missing client_email or private_key.`,
     );
   }
+  // A key that has been through an environment variable arrives with its
+  // newlines escaped, flattened or stripped; all of those are repairable, and
+  // all of them otherwise fail as "DECODER routines::unsupported" much later.
+  const { key: privateKey, repairs } = repairPem(key.private_key);
+
   return {
     client_email: key.client_email,
-    // Env vars routinely carry the newlines escaped; both forms must work.
-    private_key: key.private_key.replace(/\\n/g, "\n"),
+    private_key: privateKey,
+    repairs,
     ...(key.project_id ? { project_id: key.project_id } : {}),
   };
+}
+
+/**
+ * Describes the configured key without revealing it: whether it parses, what
+ * shape its PEM is in and what had to be repaired. For the health endpoint.
+ */
+export function describeCredentials(): {
+  ok: boolean;
+  client_email?: string;
+  pem?: PemShape;
+  repairs?: string[];
+  error?: string;
+} {
+  try {
+    const key = loadKey();
+    return {
+      ok: true,
+      client_email: key.client_email,
+      pem: describePem(key.private_key),
+      repairs: key.repairs,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not read the key.",
+    };
+  }
 }
 
 function loadKey(): ServiceAccountKey {
