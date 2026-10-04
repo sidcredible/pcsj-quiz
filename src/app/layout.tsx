@@ -10,6 +10,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // Lets the page paint under an iPad's rounded corners; `.page-shell` keeps
+  // the content clear of them. Zoom is deliberately left alone.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -20,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <div className="mx-auto w-full max-w-3xl px-4 pb-16 pt-5">{children}</div>
+        <div className="page-shell mx-auto w-full pt-5">{children}</div>
       </body>
     </html>
   );

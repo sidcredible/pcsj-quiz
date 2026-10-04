@@ -97,7 +97,7 @@ export function QuizList() {
   );
 
   return (
-    <div>
+    <div className="wide-shell">
       <PageTitle sub="Delhi Judicial Service · UP PCS(J)">Practice sets</PageTitle>
 
       {error ? (
@@ -174,14 +174,14 @@ export function QuizList() {
         </p>
       ) : null}
 
-      <ul className="space-y-3">
+      <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {visible.map((quiz) => {
           const last = data?.last_scores[quiz.set_id];
           return (
             <li key={quiz.set_id}>
               <Link
                 href={`/quiz/${encodeURIComponent(quiz.set_id)}`}
-                className="card block px-4 py-4 transition-colors hover:border-current"
+                className="card block h-full px-4 py-4 transition-colors hover:border-current"
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <h2 className="prose-legal text-lg font-semibold leading-snug">

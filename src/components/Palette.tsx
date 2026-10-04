@@ -4,6 +4,10 @@
  * The question palette: answered, skipped and marked-for-review at a glance,
  * and a jump to any question. Sized for a thumb and wraps freely, so 50
  * questions fit a 360px screen without sideways scrolling.
+ *
+ * On a tablet in landscape the same palette goes in a column beside the
+ * question (`variant="sidebar"`), where it sticks to the top of the viewport
+ * instead of sitting below the answer controls.
  */
 
 import type { CandidateQuestion } from "@/lib/quiz/redact";
@@ -59,13 +63,25 @@ export function Palette({
   questions,
   states,
   onJump,
+  variant = "inline",
 }: {
   questions: CandidateQuestion[];
   states: PaletteState[];
   onJump: (index: number) => void;
+  variant?: "inline" | "sidebar";
 }) {
+  const sidebar = variant === "sidebar";
+
   return (
-    <nav aria-label="Question palette" className="mt-4">
+    <nav
+      aria-label="Question palette"
+      className={sidebar ? "palette-aside card px-3 py-3" : "mt-4"}
+    >
+      {sidebar ? (
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide">
+          <span style={{ color: "var(--muted)" }}>Questions</span>
+        </h2>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
         {questions.map((question, index) => {
           const state = states[index] ?? "skipped";
@@ -77,7 +93,7 @@ export function Palette({
               onClick={() => onJump(index)}
               aria-label={`Question ${question.number}, ${LABELS[state]}`}
               aria-current={state === "current" ? "true" : undefined}
-              className="h-9 w-9 rounded-md border text-sm font-semibold tabular-nums"
+              className="h-10 w-10 touch-manipulation rounded-md border text-sm font-semibold tabular-nums md:h-11 md:w-11"
               style={{
                 background: palette.background,
                 color: palette.color,

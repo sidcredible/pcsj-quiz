@@ -271,6 +271,7 @@ Generic rules: render fields when present regardless of style (a `case_based` it
 - All strings are plain text. Render `\n` as a line break (CSS `white-space: pre-line`). Escape everything; never inject as HTML.
 - Never shuffle option keys without remapping `answer` and `why_others_wrong`. Simplest: do not shuffle in v1. Explanations never mention option letters, so shuffling is safe later if you remap.
 - Mobile first: most candidates will use a phone. Match-list tables must fit 360 px width (stack the lists on narrow screens).
+- Tablet second: from 768 px the type and the tap targets grow a step; from 1024 px the attempt screen puts the question palette in a sticky column beside the question and the quiz list runs two cards across. Arrow keys move between questions for anyone with a keyboard attached.
 
 ## 7. Scoring
 
