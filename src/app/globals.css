@@ -3,6 +3,12 @@
 /*
  * Mobile first throughout: most candidates are on a phone, so the base styles
  * target a 360px viewport and widen from there. Nothing may scroll sideways.
+ *
+ * A tablet is the second place these screens are used. From 768px up the type
+ * grows a little for arm's-length reading and the tap targets grow with it;
+ * from 1024px the attempt screen spreads into two columns rather than leaving
+ * half an iPad empty. Hover effects stay behind a pointer query, so a finger
+ * never leaves a highlight stuck behind it.
  */
 :root {
   --bg: #faf8f4;
@@ -42,12 +48,44 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* A tablet is read at arm's length, further away than a phone. */
+@media (min-width: 768px) {
+  html {
+    font-size: 17px;
+  }
+}
+
+@media (min-width: 1024px) {
+  html {
+    font-size: 18px;
+  }
+}
+
 body {
   background: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   line-height: 1.55;
   overflow-x: hidden;
+}
+
+/*
+ * The page column. Prose keeps a readable measure at 48rem, and a screen with
+ * something to put in the spare width — the quiz list, the attempt screen —
+ * opts in by marking its content `wide-shell`.
+ */
+.page-shell {
+  max-width: 48rem;
+  /* Clear of the rounded corners and the camera housing in landscape. */
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 1024px) {
+  .page-shell:has(.wide-shell) {
+    max-width: 72rem;
+  }
 }
 
 /* Every string from the quiz file is plain text with \n for line breaks. */
@@ -95,6 +133,23 @@ body {
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+  /* No 300ms double-tap wait on iPadOS. */
+  touch-action: manipulation;
+}
+
+/* A tablet has room for a target a finger finds without aiming. */
+@media (min-width: 768px) {
+  .btn {
+    min-height: 3rem;
+    padding: 0.65rem 1.25rem;
+  }
+}
+
+/* A trackpad or a mouse, never a finger. */
+@media (hover: hover) and (pointer: fine) {
+  .btn:not(:disabled):hover {
+    border-color: var(--accent);
+  }
 }
 
 .btn:disabled {
@@ -122,8 +177,24 @@ body {
   padding: 0.6rem 0.75rem;
   color: var(--text);
   /* 16px stops iOS zooming the viewport on focus. */
-  font-size: 1rem;
+  font-size: max(1rem, 16px);
   min-height: 2.75rem;
+  touch-action: manipulation;
+}
+
+@media (min-width: 768px) {
+  .field {
+    min-height: 3rem;
+  }
+}
+
+/*
+ * A drafting box is 14 rows, which overruns a tablet in landscape. Cap it at
+ * most of the viewport and let the candidate drag it taller if they want.
+ */
+textarea.field {
+  resize: vertical;
+  max-height: 60vh;
 }
 
 .field:focus-visible,
@@ -145,6 +216,30 @@ a:focus-visible {
   padding: 0.7rem 0.8rem;
   background: var(--surface);
   cursor: pointer;
+  touch-action: manipulation;
+  min-height: 2.75rem;
+}
+
+@media (min-width: 768px) {
+  .option {
+    padding: 0.85rem 1rem;
+    min-height: 3rem;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .option:not([data-verdict]):hover {
+    border-color: var(--accent);
+  }
+}
+
+/*
+ * The radio or checkbox inside is visually hidden, so the row carries the
+ * focus ring for anyone moving through the options from a keyboard.
+ */
+.option:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .option[data-selected="true"] {
@@ -167,4 +262,18 @@ a:focus-visible {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   color: var(--muted);
+}
+
+/*
+ * The question palette rides beside the question on a wide screen, so a
+ * candidate on a tablet can jump without scrolling past the answer controls.
+ */
+@media (min-width: 1024px) {
+  .palette-aside {
+    position: sticky;
+    top: 1.25rem;
+    /* A 50-question palette scrolls inside the column rather than off-screen. */
+    max-height: calc(100vh - 2.5rem);
+    overflow-y: auto;
+  }
 }
