@@ -51,62 +51,47 @@ function AssertionReason({
 }
 
 /**
- * Two lists paired by position. Side by side from 480px up; stacked below, so
- * a match-list question stays readable at 360px without sideways scrolling.
+ * The two lists of a match-list question, each as a whole block.
+ *
+ * Side by side from 480px up, stacked below. The lists must never interleave
+ * when they stack: showing I, A, II, B, III, C reads as though I pairs with A,
+ * which on a match-list question is exactly the thing the candidate is being
+ * asked and would hand them a wrong answer. So each list stays whole, with its
+ * own heading, in both layouts.
  */
 function MatchLists({ match }: { match: NonNullable<CandidateQuestion["match"]> }) {
-  const rows = Math.max(match.list_i.length, match.list_ii.length);
-  const pairs = Array.from({ length: rows }, (_, index) => ({
-    left: match.list_i[index],
-    right: match.list_ii[index],
-  }));
+  const columns = [
+    { title: match.list_i_title ?? "List I", items: match.list_i },
+    { title: match.list_ii_title ?? "List II", items: match.list_ii },
+  ];
 
   return (
-    <div className="mt-3 card overflow-hidden">
-      <div className="hidden grid-cols-2 border-b text-xs font-semibold uppercase tracking-wide min-[480px]:grid"
-        style={{ borderColor: "var(--border)" }}
-      >
-        <div className="px-3 py-2">
-          <Muted>{match.list_i_title ?? "List I"}</Muted>
-        </div>
-        <div className="border-l px-3 py-2" style={{ borderColor: "var(--border)" }}>
-          <Muted>{match.list_ii_title ?? "List II"}</Muted>
-        </div>
-      </div>
-
-      {pairs.map((pair, index) => (
-        <div
-          key={pair.left?.key ?? pair.right?.key ?? index}
-          className="grid grid-cols-1 border-b last:border-b-0 min-[480px]:grid-cols-2"
-          style={{ borderColor: "var(--border)" }}
+    <div className="mt-3 card grid grid-cols-1 overflow-hidden min-[480px]:grid-cols-2">
+      {columns.map((column, columnIndex) => (
+        <section
+          key={column.title}
+          className={
+            columnIndex === 1
+              ? "border-t min-[480px]:border-l min-[480px]:border-t-0"
+              : undefined
+          }
+          style={columnIndex === 1 ? { borderColor: "var(--border)" } : undefined}
         >
-          <div className="px-3 py-2">
-            {/* The list titles become inline labels once the grid stacks. */}
-            <p className="mb-0.5 text-[0.65rem] uppercase tracking-wide min-[480px]:hidden">
-              <Muted>{match.list_i_title ?? "List I"}</Muted>
-            </p>
-            {pair.left ? (
-              <div className="flex gap-2">
-                <span className="option-key">{pair.left.key}.</span>
-                <QuizText className="flex-1">{pair.left.text}</QuizText>
-              </div>
-            ) : null}
-          </div>
-          <div
-            className="border-t px-3 py-2 min-[480px]:border-l min-[480px]:border-t-0"
+          <h3
+            className="border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide"
             style={{ borderColor: "var(--border)" }}
           >
-            <p className="mb-0.5 text-[0.65rem] uppercase tracking-wide min-[480px]:hidden">
-              <Muted>{match.list_ii_title ?? "List II"}</Muted>
-            </p>
-            {pair.right ? (
-              <div className="flex gap-2">
-                <span className="option-key">{pair.right.key}.</span>
-                <QuizText className="flex-1">{pair.right.text}</QuizText>
-              </div>
-            ) : null}
-          </div>
-        </div>
+            <Muted>{column.title}</Muted>
+          </h3>
+          <ul className="px-3 py-2">
+            {column.items.map((item) => (
+              <li key={item.key} className="flex gap-2 py-1">
+                <span className="option-key">{item.key}.</span>
+                <QuizText className="flex-1">{item.text}</QuizText>
+              </li>
+            ))}
+          </ul>
+        </section>
       ))}
     </div>
   );
