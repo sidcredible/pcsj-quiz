@@ -211,6 +211,36 @@ export function QuizRunner({
     [bankTime, current, questions.length],
   );
 
+  /**
+   * A tablet with a keyboard attached, or a laptop, gets the arrow keys for
+   * moving between questions. Anything typed into the answer box, a field or a
+   * menu is left alone, and so is any shortcut the browser owns.
+   */
+  useEffect(() => {
+    if (phase !== "attempt") return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")
+      ) {
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        goTo(index - 1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        goTo(index + 1);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [phase, index, goTo]);
+
   function updateAnswer(questionId: string, patch: Partial<AnswerState>) {
     setAnswers((previous) => {
       const existing = previous[questionId] ?? emptyAnswer();
@@ -518,120 +548,143 @@ export function QuizRunner({
     const remaining = timeLimit === null ? null : timeLimit - elapsed;
 
     return (
-      <div>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span>
-            <Muted>
-              {index + 1} of {questions.length} · {answeredCount} answered
-            </Muted>
-          </span>
-          <span
-            className="tabular-nums"
-            style={{
-              color:
-                remaining !== null && remaining <= 60 ? "var(--wrong)" : "var(--muted)",
-            }}
-          >
-            {remaining === null
-              ? formatDuration(elapsed)
-              : remaining >= 0
-                ? `${formatDuration(remaining)} left`
-                : `${formatDuration(-remaining)} over`}
-          </span>
-        </div>
-
-        {error ? <Notice tone="warn">{error}</Notice> : null}
-
-        <article className="card px-3 py-4 sm:px-4">
-          <QuestionMeta question={current} />
-          <QuestionBody question={current} />
-
-          {current.type === "mcq" ? (
-            <OptionList
-              question={current}
-              chosen={answer.chosen}
-              onChange={(chosen) => updateAnswer(current.id, { chosen })}
-            />
-          ) : (
-            <SubjectiveAnswer
-              question={current}
-              text={answer.text}
-              onChange={(text) => updateAnswer(current.id, { text })}
-            />
-          )}
-
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3"
-            style={{ borderColor: "var(--border)" }}
-          >
-            <button
-              type="button"
-              className="btn"
-              onClick={() =>
-                updateAnswer(current.id, { markedForReview: !answer.markedForReview })
-              }
-              aria-pressed={answer.markedForReview}
-              style={
-                answer.markedForReview
-                  ? { borderColor: "var(--flag)", background: "var(--flag-soft)" }
-                  : undefined
-              }
+      <div className="wide-shell lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-6">
+        <div className="lg:col-start-1">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span>
+              <Muted>
+                {index + 1} of {questions.length} · {answeredCount} answered
+              </Muted>
+            </span>
+            <span
+              className="tabular-nums"
+              style={{
+                color:
+                  remaining !== null && remaining <= 60 ? "var(--wrong)" : "var(--muted)",
+              }}
             >
-              {answer.markedForReview ? "Marked for review" : "Mark for review"}
-            </button>
+              {remaining === null
+                ? formatDuration(elapsed)
+                : remaining >= 0
+                  ? `${formatDuration(remaining)} left`
+                  : `${formatDuration(-remaining)} over`}
+            </span>
+          </div>
 
-            {current.type === "mcq" && answer.chosen.length > 0 ? (
+          {error ? <Notice tone="warn">{error}</Notice> : null}
+
+          <article className="card px-3 py-4 sm:px-4">
+            <QuestionMeta question={current} />
+            <QuestionBody question={current} />
+
+            {current.type === "mcq" ? (
+              <OptionList
+                question={current}
+                chosen={answer.chosen}
+                onChange={(chosen) => updateAnswer(current.id, { chosen })}
+              />
+            ) : (
+              <SubjectiveAnswer
+                question={current}
+                text={answer.text}
+                onChange={(text) => updateAnswer(current.id, { text })}
+              />
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3"
+              style={{ borderColor: "var(--border)" }}
+            >
               <button
                 type="button"
                 className="btn"
-                onClick={() => updateAnswer(current.id, { chosen: [] })}
+                onClick={() =>
+                  updateAnswer(current.id, { markedForReview: !answer.markedForReview })
+                }
+                aria-pressed={answer.markedForReview}
+                style={
+                  answer.markedForReview
+                    ? { borderColor: "var(--flag)", background: "var(--flag-soft)" }
+                    : undefined
+                }
               >
-                Clear answer
+                {answer.markedForReview ? "Marked for review" : "Mark for review"}
               </button>
-            ) : null}
-          </div>
-        </article>
 
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            className="btn flex-1"
-            onClick={() => goTo(index - 1)}
-            disabled={index === 0}
-          >
-            Previous
-          </button>
+              {current.type === "mcq" && answer.chosen.length > 0 ? (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => updateAnswer(current.id, { chosen: [] })}
+                >
+                  Clear answer
+                </button>
+              ) : null}
+            </div>
+          </article>
+
+          {/*
+            Full width under the thumb on a phone; from 768px up the pair sits
+            at its own size on the right, where a hand holding a tablet is.
+          */}
+          <div className="mt-4 flex gap-2 md:justify-end">
+            <button
+              type="button"
+              className="btn flex-1 md:min-w-40 md:flex-none"
+              onClick={() => goTo(index - 1)}
+              disabled={index === 0}
+            >
+              Previous
+            </button>
+            {index < questions.length - 1 ? (
+              <button
+                type="button"
+                className="btn btn-primary flex-1 md:min-w-40 md:flex-none"
+                onClick={() => goTo(index + 1)}
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary flex-1 md:min-w-40 md:flex-none"
+                onClick={() => void submit()}
+                disabled={submitting}
+              >
+                {submitting ? "Submitting…" : "Submit"}
+              </button>
+            )}
+          </div>
+
           {index < questions.length - 1 ? (
             <button
               type="button"
-              className="btn btn-primary flex-1"
-              onClick={() => goTo(index + 1)}
-            >
-              Next
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-primary flex-1"
+              className="btn mt-2 w-full md:w-auto"
               onClick={() => void submit()}
               disabled={submitting}
             >
-              {submitting ? "Submitting…" : "Submit"}
+              {submitting ? "Submitting…" : "Submit quiz"}
             </button>
-          )}
+          ) : null}
+
+          {/* Only worth saying where a keyboard is likely to be attached. */}
+          <p className="mt-3 hidden text-xs lg:block">
+            <Muted>Use ← and → to move between questions.</Muted>
+          </p>
+
+          {/* Under the question on a phone, beside it from 1024px up. */}
+          <div className="lg:hidden">
+            <Palette questions={questions} states={paletteStates} onJump={goTo} />
+          </div>
         </div>
 
-        {index < questions.length - 1 ? (
-          <button
-            type="button"
-            className="btn mt-2 w-full"
-            onClick={() => void submit()}
-            disabled={submitting}
-          >
-            {submitting ? "Submitting…" : "Submit quiz"}
-          </button>
-        ) : null}
-
-        <Palette questions={questions} states={paletteStates} onJump={goTo} />
+        <aside className="hidden lg:col-start-2 lg:block">
+          <Palette
+            questions={questions}
+            states={paletteStates}
+            onJump={goTo}
+            variant="sidebar"
+          />
+        </aside>
       </div>
     );
   }
