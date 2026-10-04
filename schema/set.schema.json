@@ -1,0 +1,730 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pcsj/set.schema.json",
+  "title": "PCSJ daily question set",
+  "description": "One generated practice set (DJS / UP PCS-J). Plain-text fields; \\n marks a line break. v1.1 adds composition, PYQ provenance and new-law adaptation fields.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "set_id",
+    "created",
+    "request",
+    "law_basis",
+    "questions",
+    "composition"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.1"
+    },
+    "set_id": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}_[a-z0-9-]+$"
+    },
+    "created": {
+      "type": "string",
+      "format": "date"
+    },
+    "title": {
+      "type": "string"
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "topic",
+        "question_count"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "question_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "question_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "mcq",
+              "subjective"
+            ]
+          }
+        },
+        "exam_focus": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "DJS",
+              "UP-PCSJ"
+            ]
+          }
+        },
+        "sources_requested": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "law_basis": {
+      "type": "string"
+    },
+    "pyq_analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "related_pyqs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pattern_notes": {
+          "type": "string"
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/question"
+      }
+    },
+    "composition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "pyq",
+        "judgment",
+        "generated",
+        "total"
+      ],
+      "description": "How the set was filled: all directly related PYQs first, then judgment/landmark questions, then generated questions only to reach the requested count. total may exceed requested.",
+      "properties": {
+        "requested": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pyq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "judgment": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pyq_candidates_reviewed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "excluded_pyqs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "pyq_id",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "pyq_id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "option": {
+      "type": "object",
+      "required": [
+        "key",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-e]$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "keyed_text": {
+      "type": "object",
+      "required": [
+        "key",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "provision": {
+      "type": "object",
+      "required": [
+        "act",
+        "section"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "act": {
+          "type": "string"
+        },
+        "section": {
+          "type": "string"
+        },
+        "old_law_equivalent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "required": [
+        "name",
+        "court",
+        "decided",
+        "point"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "court": {
+          "type": "string"
+        },
+        "decided": {
+          "type": "string",
+          "description": "YYYY or YYYY-MM-DD"
+        },
+        "citation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bench": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "point": {
+          "type": "string"
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "required": [
+        "title",
+        "url",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "kind": {
+          "enum": [
+            "bare_act",
+            "judgment",
+            "case_report",
+            "commentary",
+            "official"
+          ]
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "required": [
+        "id",
+        "number",
+        "type",
+        "basis",
+        "subject_code",
+        "topic",
+        "question",
+        "answer",
+        "explanation",
+        "resources",
+        "verification"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}_[a-z0-9-]+_Q\\d{2,3}$"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "enum": [
+            "mcq",
+            "subjective"
+          ]
+        },
+        "mcq_style": {
+          "enum": [
+            "direct",
+            "fact_based",
+            "statement_based",
+            "assertion_reason",
+            "match_list",
+            "case_based",
+            "numerical"
+          ]
+        },
+        "basis": {
+          "enum": [
+            "pyq",
+            "pyq_inspired",
+            "new",
+            "judgment_based",
+            "recent_development"
+          ]
+        },
+        "basis_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "PYQ ids from pyq_bank.jsonl and/or case names"
+        },
+        "exam_focus": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "DJS",
+              "UP-PCSJ"
+            ]
+          }
+        },
+        "subject_code": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "question": {
+          "type": "string",
+          "minLength": 5
+        },
+        "statements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keyed_text"
+          }
+        },
+        "assertion": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "match": {
+          "type": "object",
+          "required": [
+            "list_i",
+            "list_ii"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "list_i_title": {
+              "type": "string"
+            },
+            "list_ii_title": {
+              "type": "string"
+            },
+            "list_i": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/keyed_text"
+              }
+            },
+            "list_ii": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/keyed_text"
+              }
+            }
+          }
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/option"
+          }
+        },
+        "answer": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "marks": {
+          "type": "number"
+        },
+        "word_limit": {
+          "type": "integer"
+        },
+        "marking_points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "point",
+              "marks"
+            ],
+            "properties": {
+              "point": {
+                "type": "string"
+              },
+              "marks": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "explanation": {
+          "type": "object",
+          "required": [
+            "why_correct",
+            "provisions"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "why_correct": {
+              "type": "string"
+            },
+            "why_others_wrong": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "model_answer": {
+              "type": "string"
+            },
+            "provisions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/provision"
+              }
+            },
+            "cases": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/case"
+              }
+            },
+            "exam_tip": {
+              "type": "string"
+            }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resource"
+          }
+        },
+        "verification": {
+          "type": "object",
+          "required": [
+            "status",
+            "checked_against"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "verified",
+                "partially_verified"
+              ]
+            },
+            "checked_against": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "subjective_style": {
+          "enum": [
+            "problem",
+            "short_note",
+            "essay",
+            "short_answer",
+            "one_word",
+            "judgment_writing",
+            "drafting",
+            "explain"
+          ]
+        },
+        "source_pyqs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pyq_ref"
+          },
+          "description": "Every paper/year in which this question (or a near-identical one) appeared. Required when basis = pyq."
+        },
+        "pyq_original": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "question"
+          ],
+          "description": "The question exactly as printed in the earliest listed source (before any new-law adaptation).",
+          "properties": {
+            "question": {
+              "type": "string"
+            },
+            "options": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/option"
+              }
+            },
+            "source_answer": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "source_answer_status": {
+              "type": "string"
+            }
+          }
+        },
+        "adaptation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapted"
+          ],
+          "properties": {
+            "adapted": {
+              "type": "boolean"
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "answer_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "official_key",
+                "publisher_key_confirmed",
+                "publisher_key_disputed",
+                "author_verified"
+              ]
+            },
+            "publisher_answer": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "mcq"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "options",
+              "mcq_style"
+            ],
+            "properties": {
+              "answer": {
+                "type": "array"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "subjective"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "marks"
+            ],
+            "properties": {
+              "answer": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "basis": {
+                "const": "pyq"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "source_pyqs",
+              "pyq_original",
+              "adaptation",
+              "answer_provenance"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "subjective"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "subjective_style",
+              "marking_points"
+            ]
+          }
+        }
+      ]
+    },
+    "pyq_ref": {
+      "type": "object",
+      "required": [
+        "pyq_id",
+        "exam",
+        "stage",
+        "year"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pyq_id": {
+          "type": "string"
+        },
+        "exam": {
+          "enum": [
+            "DJS",
+            "UP-PCSJ"
+          ]
+        },
+        "stage": {
+          "enum": [
+            "prelims",
+            "mains"
+          ]
+        },
+        "year": {
+          "type": "integer"
+        },
+        "paper": {
+          "type": "string"
+        },
+        "q_no": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      }
+    }
+  }
+}
